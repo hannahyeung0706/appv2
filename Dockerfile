@@ -1,5 +1,5 @@
 # Dockerfile
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Create app directory
 WORKDIR /usr/src/app
@@ -20,7 +20,7 @@ RUN mkdir -p uploads && chown -R node:node uploads
 USER node
 
 # Expose port
-EXPOSE 3000
+EXPOSE 8080
 
 # Start application
 CMD ["node", "app.js"]
