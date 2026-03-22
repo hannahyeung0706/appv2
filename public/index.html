@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Active Directory Group Search</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>
+                <i class="fas fa-network-wired"></i>
+                Active Directory Group Search
+            </h1>
+            <p>Search AD groups and export user information</p>
+        </div>
+        
+        <div class="main-content">
+            <div class="status-fashion" id="status"></div>
+            
+            <div class="form-group-fashion">
+                <label><i class="fas fa-users"></i> Group Name</label>
+                <input type="text" id="groupName" placeholder="e.g., Domain Users, IT Admins">
+            </div>
+            
+            <div class="form-group-fashion">
+                <label><i class="fas fa-list"></i> Attributes</label>
+                <input type="text" id="attributes" value="displayName,mail,sn,title,telephoneNumber,pager,sAMAccountName">
+            </div>
+            
+            <div class="button-group">
+                <button class="btn-fashion btn-primary-fashion" id="searchBtn">
+                    <i class="fas fa-search"></i> Search Group
+                </button>
+                <button class="btn-fashion btn-success-fashion" id="exportCsvBtn" disabled>
+                    <i class="fas fa-file-csv"></i> Export CSV
+                </button>
+            </div>
+            
+            <div class="pagination-container" id="paginationContainer" style="display: none;">
+                <div>
+                    <label>Records per page:</label>
+                    <select id="pageSizeSelect">
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="200" selected>200</option>
+                        <option value="500">500</option>
+                    </select>
+                </div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="pagination-btn" id="firstPageBtn" disabled>«</button>
+                    <button class="pagination-btn" id="prevPageBtn" disabled>‹</button>
+                    <span id="pageInfo">Page 1 of 1</span>
+                    <button class="pagination-btn" id="nextPageBtn" disabled>›</button>
+                    <button class="pagination-btn" id="lastPageBtn" disabled>»</button>
+                </div>
+            </div>
+            
+            <div class="output-container-fashion">
+                <div class="output-header-fashion">
+                    <h3><i class="fas fa-users"></i> Results</h3>
+                    <div class="tabs-fashion">
+                        <button class="tab-fashion active" id="tableTab">Table</button>
+                        <button class="tab-fashion" id="jsonTab">JSON</button>
+                    </div>
+                </div>
+                
+                <div id="tableView">
+                    <div id="loading" style="display: none; text-align: center; padding: 40px;">
+                        <i class="fas fa-spinner fa-spin" style="font-size: 32px;"></i>
+                        <p>Searching...</p>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table class="results-table">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>Username</th>
+                                    <th>Name</th>
+                                    <th>Surname</th>
+                                    <th>Display Name</th>
+                                    <th>Email</th>
+                                    <th>Title</th>
+                                    <th>Phone</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableBody">
+                                <tr>
+                                    <td colspan="9" style="text-align: center; padding: 40px;">
+                                        <i class="fas fa-search"></i> Enter a group name and click Search
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                
+                <pre id="jsonView" style="display: none; background: #1e1e2f; color: #fff; padding: 15px; border-radius: 8px; overflow-x: auto;"></pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const groupName = document.getElementById('groupName');
+        const attributes = document.getElementById('attributes');
+        const searchBtn = document.getElementById('searchBtn');
+        const exportCsvBtn = document.getElementById('exportCsvBtn');
+        const status = document.getElementById('status');
+        const tableBody = document.getElementById('tableBody');
+        const jsonView = document.getElementById('jsonView');
+        const tableTab = document.getElementById('tableTab');
+        const jsonTab = document.getElementById('jsonTab');
+        const loading = document.getElementById('loading');
+        const paginationContainer = document.getElementById('paginationContainer');
+        const pageSizeSelect = document.getElementById('pageSizeSelect');
+        const firstPageBtn = document.getElementById('firstPageBtn');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const lastPageBtn = document.getElementById('lastPageBtn');
+        const pageInfo = document.getElementById('pageInfo');
+        
+        let currentGroupName = '';
+        let currentPage = 1;
+        let totalPages = 1;
+        
+        searchBtn.addEventListener('click', async () => {
+            if (!groupName.value.trim()) {
+                showStatus('Please enter a group name', 'error');
+                return;
+            }
+            
+            searchBtn.disabled = true;
+            searchBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Searching...';
+            loading.style.display = 'block';
+            
+            currentGroupName = groupName.value.trim();
+            currentPage = 1;
+            
+            try {
+                await search(currentPage, parseInt(pageSizeSelect.value));
+            } catch (error) {
+                showStatus('Search failed: ' + error.message, 'error');
+            } finally {
+                searchBtn.disabled = false;
+                searchBtn.innerHTML = '<i class="fas fa-search"></i> Search Group';
+                loading.style.display = 'none';
+            }
+        });
+        
+        async function search(page, pageSize) {
+            const response = await fetch('/api/ad/search-group-recursive', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    groupName: currentGroupName,
+                    attributes: attributes.value || 'displayName,mail,sn,title,telephoneNumber,pager,sAMAccountName',
+                    page: page,
+                    pageSize: pageSize
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                displayResults(data);
+                exportCsvBtn.disabled = false;
+                totalPages = data.totalPages || 1;
+                updatePagination(data);
+                showStatus(`Found ${data.totalUsers} users`, 'success');
+            } else {
+                showStatus(data.error || 'Search failed', 'error');
+            }
+        }
+        
+        function displayResults(data) {
+            if (!data.users || data.users.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No users found</td></tr>';
+                jsonView.textContent = JSON.stringify(data, null, 2);
+                return;
+            }
+            
+            let html = '';
+            data.users.forEach((user, idx) => {
+                const rowNum = (data.startIndex || 1) + idx;
+                html += `
+                    <tr>
+                        <td>${rowNum}</td>
+                        <td>${user.sAMAccountName || '-'}</td>
+                        <td>${user.name || '-'}</td>
+                        <td>${user.sn || '-'}</td>
+                        <td>${user.displayName || '-'}</td>
+                        <td>${user.mail || '-'}</td>
+                        <td>${user.title || '-'}</td>
+                        <td>${user.telephoneNumber || '-'}</td>
+                        <td><span class="status-badge ${user.enabled ? 'status-enabled' : 'status-disabled'}">${user.enabled ? 'Enabled' : 'Disabled'}</span></td>
+                    </tr>
+                `;
+            });
+            
+            tableBody.innerHTML = html;
+            jsonView.textContent = JSON.stringify(data, null, 2);
+        }
+        
+        function updatePagination(data) {
+            if (data.totalPages > 1) {
+                paginationContainer.style.display = 'flex';
+                pageInfo.textContent = `Page ${data.currentPage} of ${data.totalPages}`;
+                firstPageBtn.disabled = data.currentPage === 1;
+                prevPageBtn.disabled = data.currentPage === 1;
+                nextPageBtn.disabled = data.currentPage === data.totalPages;
+                lastPageBtn.disabled = data.currentPage === data.totalPages;
+            } else {
+                paginationContainer.style.display = 'none';
+            }
+        }
+        
+        firstPageBtn.onclick = () => { currentPage = 1; search(currentPage, parseInt(pageSizeSelect.value)); };
+        prevPageBtn.onclick = () => { if (currentPage > 1) { currentPage--; search(currentPage, parseInt(pageSizeSelect.value)); } };
+        nextPageBtn.onclick = () => { if (currentPage < totalPages) { currentPage++; search(currentPage, parseInt(pageSizeSelect.value)); } };
+        lastPageBtn.onclick = () => { currentPage = totalPages; search(currentPage, parseInt(pageSizeSelect.value)); };
+        pageSizeSelect.onchange = () => { currentPage = 1; search(currentPage, parseInt(pageSizeSelect.value)); };
+        
+        exportCsvBtn.addEventListener('click', async () => {
+            if (!currentGroupName) return;
+            
+            exportCsvBtn.disabled = true;
+            exportCsvBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+            
+            try {
+                const response = await fetch('/api/ad/export-group-csv', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        groupName: currentGroupName,
+                        attributes: attributes.value
+                    })
+                });
+                
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${currentGroupName.replace(/[^a-z0-9]/gi, '_')}_members.csv`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                    showStatus('CSV exported successfully', 'success');
+                } else {
+                    showStatus('Export failed', 'error');
+                }
+            } catch (error) {
+                showStatus('Export failed', 'error');
+            } finally {
+                exportCsvBtn.disabled = false;
+                exportCsvBtn.innerHTML = '<i class="fas fa-file-csv"></i> Export CSV';
+            }
+        });
+        
+        tableTab.onclick = () => {
+            tableTab.classList.add('active');
+            jsonTab.classList.remove('active');
+            document.getElementById('tableView').style.display = 'block';
+            jsonView.style.display = 'none';
+        };
+        
+        jsonTab.onclick = () => {
+            jsonTab.classList.add('active');
+            tableTab.classList.remove('active');
+            document.getElementById('tableView').style.display = 'none';
+            jsonView.style.display = 'block';
+        };
+        
+        function showStatus(msg, type) {
+            status.textContent = msg;
+            status.className = `status-fashion ${type}`;
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 3000);
+        }
+        
+        groupName.addEventListener('keypress', (e) => { if (e.key === 'Enter') searchBtn.click(); });
+    </script>
+</body>
+</html>
